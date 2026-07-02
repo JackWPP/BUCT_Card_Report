@@ -23,8 +23,8 @@ def parse_card_url(url: str) -> str:
 
     if parsed.hostname not in ALLOWED_DOMAINS:
         raise ValueError(
-            f"Unsupported domain '{parsed.hostname}'. "
-            f"Expected one of: {ALLOWED_DOMAINS}"
+            f"不支持的域名 '{parsed.hostname}'。"
+            f"期望的域名: {ALLOWED_DOMAINS}"
         )
 
     params = parse_qs(parsed.query)
@@ -34,13 +34,12 @@ def parse_card_url(url: str) -> str:
 
     if "code" in params:
         raise ValueError(
-            "URL contains an OAuth 'code' but no 'openid'. "
-            "The code is single-use and likely expired. "
-            "Please open the page in WeCom first, then copy the "
-            "redirected URL that contains 'openid='."
+            "链接中包含 OAuth 'code' 但没有 'openid'。"
+            "code 是一次性的且可能已过期。"
+            "请先在企业微信中打开页面，然后复制包含 'openid=' 的完整链接。"
         )
 
     raise ValueError(
-        "No 'openid' parameter found in URL. "
-        "Please copy the full URL from the campus card page in WeCom."
+        "链接中未找到 'openid' 参数。"
+        "请从企业微信中的校园卡页面复制完整链接。"
     )

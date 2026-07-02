@@ -12,7 +12,7 @@ def test_parse_selftrade_url_with_openid():
 
 def test_parse_url_with_code_returns_error():
     url = "https://mcard.buct.edu.cn/home/openHomePage?code=GTXG1JWiP2CX1iUl&state=123"
-    with pytest.raises(ValueError, match="code.*expired"):
+    with pytest.raises(ValueError, match="code"):
         parse_card_url(url)
 
 def test_parse_url_no_params():
@@ -25,5 +25,5 @@ def test_parse_invalid_url():
         parse_card_url("not a url at all")
 
 def test_parse_non_buct_domain():
-    with pytest.raises(ValueError, match="domain"):
+    with pytest.raises(ValueError, match="域名"):
         parse_card_url("https://example.com/home?openid=ABC")
