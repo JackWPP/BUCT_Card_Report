@@ -3,7 +3,7 @@
 ALL_CATEGORIES = [
     "餐饮", "饮品", "零食/水果", "充值/转账",
     "网络缴费", "生活服务", "交通", "医疗",
-    "浴室/开水", "补卡", "其他",
+    "浴室/开水", "补卡",
 ]
 
 # Rules checked in order — first match wins

@@ -1,5 +1,4 @@
 # app.py
-import json
 import logging
 import threading
 from pathlib import Path

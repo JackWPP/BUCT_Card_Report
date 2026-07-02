@@ -1,10 +1,9 @@
 # fetcher/browser.py
 import time
-import json
 import logging
 from datetime import datetime, timedelta
 from typing import Callable, Optional
-from playwright.sync_api import sync_playwright, Page
+from playwright.sync_api import sync_playwright
 from fetcher.models import Transaction
 from config import Config
 
@@ -42,9 +41,9 @@ $.ajax = function(opts) {
 
 # JS to trigger a query for a specific date range
 TRIGGER_QUERY_JS = """
-(beginTime, endTime) => {
-    document.getElementById('beginTime').value = beginTime;
-    document.getElementById('endTime').value = endTime;
+(args) => {
+    document.getElementById('beginTime').value = args[0];
+    document.getElementById('endTime').value = args[1];
     queryTrade();
 }
 """
@@ -106,7 +105,7 @@ def fetch_transactions(
             count_before = len(all_data)
 
             # Trigger query
-            page.evaluate(TRIGGER_QUERY_JS, begin_str, end_str)
+            page.evaluate(TRIGGER_QUERY_JS, [begin_str, end_str])
             time.sleep(2)
 
             # Read captured data

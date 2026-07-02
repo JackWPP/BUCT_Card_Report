@@ -6,7 +6,7 @@ from analyzer.stats import AnalysisResult
 from fetcher.models import Transaction
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
-_env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)))
+_env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
 
 
 def render_report(
