@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .env
 output_report.html
+*.egg-info/
+dist/
+.venv/
+.pytest_cache/

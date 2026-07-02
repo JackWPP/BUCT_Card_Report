@@ -123,7 +123,7 @@ def api_download():
     """Download the generated report as an HTML file."""
     path = Path("output_report.html")
     if not path.exists():
-        return "No report available", 404
+        return "暂无可下载的报告", 404
     return send_file(
         path,
         mimetype="text/html",
