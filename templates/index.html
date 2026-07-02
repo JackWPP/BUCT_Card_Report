@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUCT 校园卡消费分析</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>BUCT 校园卡消费分析</h1>
+            <p class="subtitle">粘贴校园卡链接，一键生成消费报告</p>
+        </header>
+
+        <!-- Step 1: URL Input -->
+        <section id="step-input" class="card">
+            <h2>1. 输入链接</h2>
+            <p class="hint">请在企业微信中打开校园卡页面，复制地址栏中包含 <code>openid=</code> 的完整链接粘贴到下方。</p>
+            <textarea id="url-input" rows="3" placeholder="https://mcard.buct.edu.cn/selftrade/openQueryCardSelfTrade?openid=xxx&displayflag=1&id=23"></textarea>
+            <div id="url-error" class="error-msg hidden"></div>
+
+            <h2>2. 选择时间范围</h2>
+            <div class="date-row">
+                <div class="date-group">
+                    <label for="start-date">开始日期</label>
+                    <input type="date" id="start-date">
+                </div>
+                <div class="date-group">
+                    <label for="end-date">结束日期</label>
+                    <input type="date" id="end-date">
+                </div>
+            </div>
+
+            <button id="btn-fetch" class="btn btn-primary">开始分析</button>
+        </section>
+
+        <!-- Step 2: Progress -->
+        <section id="step-progress" class="card hidden">
+            <h2>数据获取中</h2>
+            <div class="progress-bar-container">
+                <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <p id="progress-msg" class="progress-msg">正在启动浏览器...</p>
+            <p id="progress-count" class="progress-count"></p>
+        </section>
+
+        <!-- Step 3: Options -->
+        <section id="step-options" class="card hidden">
+            <h2>3. 生成报告</h2>
+            <p id="fetch-summary" class="summary-text"></p>
+
+            <div class="options-group">
+                <label class="option-item">
+                    <input type="checkbox" id="opt-basic" checked disabled>
+                    <span class="option-label">基础分析（消费统计、分类、趋势）</span>
+                </label>
+                {% if llm_available %}
+                <label class="option-item">
+                    <input type="checkbox" id="opt-llm">
+                    <span class="option-label">AI 增强分析（由大模型生成个性化消费洞察）</span>
+                </label>
+                {% endif %}
+            </div>
+
+            <button id="btn-report" class="btn btn-primary">生成报告</button>
+        </section>
+
+        <!-- Step 4: Report -->
+        <section id="step-report" class="card hidden">
+            <h2>消费报告</h2>
+            <div class="report-actions">
+                <a id="btn-download" class="btn btn-secondary" href="/api/report/download" target="_blank">下载报告</a>
+                <button id="btn-new-tab" class="btn btn-secondary">在新窗口打开</button>
+            </div>
+            <div id="report-container" class="report-container">
+                <iframe id="report-iframe" class="report-iframe"></iframe>
+            </div>
+        </section>
+
+        <footer>
+            <p>BUCT 校园卡消费分析工具 &middot; 数据仅在本地处理</p>
+        </footer>
+    </div>
+
+    <script>
+        // Pass server-side config to JS
+        window.APP_CONFIG = {
+            llmAvailable: {{ 'true' if llm_available else 'false' }}
+        };
+    </script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
