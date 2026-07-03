@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .env
 output_report.html
+output_report.png
+samples/
 *.egg-info/
 dist/
 .venv/
