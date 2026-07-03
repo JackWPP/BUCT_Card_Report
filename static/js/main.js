@@ -39,6 +39,12 @@
     const btnExportCsv = $("btn-export-csv");
     const btnExportXlsx = $("btn-export-xlsx");
 
+    // Advanced options (enroll date / CSV import)
+    const enrollDate = $("enroll-date");
+    const btnFetchAll = $("btn-fetch-all");
+    const csvFileInput = $("csv-file");
+    const btnImportCsv = $("btn-import-csv");
+
     // Settings modal
     const settingsModal = $("settings-modal");
     const aboutModal = $("about-modal");
@@ -74,8 +80,16 @@
         const today = new Date();
         endDate.value = formatDate(today);
         const start = new Date(today);
-        start.setMonth(start.getMonth() - 10);
+        start.setMonth(start.getMonth() - 12);
         startDate.value = formatDate(start);
+
+        // Sensible default for "拉取在校全部": 4 years ago (typical undergrad
+        // length). User can adjust.
+        if (enrollDate && !enrollDate.value) {
+            const e = new Date(today);
+            e.setFullYear(e.getFullYear() - 4);
+            enrollDate.value = formatDate(e);
+        }
     }
 
     function debounce(fn, ms) {
@@ -411,6 +425,57 @@
         setBtnLoading(btnFetch, false, "开始分析");
     }
 
+    // --- "拉取在校全部" — fetch from enrollment date to today ---
+    function startFetchAll() {
+        if (!enrollDate.value) {
+            toast("请先选择入学日期", "error");
+            enrollDate.focus();
+            return;
+        }
+        // Mirror the URL field into the standard fetch path with the new range.
+        startDate.value = enrollDate.value;
+        endDate.value = formatDate(new Date());
+        startFetch();
+    }
+
+    // --- CSV import — bypass fetch, go straight to the options step ---
+    async function importCsv() {
+        const file = csvFileInput.files && csvFileInput.files[0];
+        if (!file) {
+            toast("请先选择 CSV 文件", "error");
+            return;
+        }
+        setBtnLoading(btnImportCsv, true, "解析中...");
+        try {
+            const form = new FormData();
+            form.append("file", file);
+            const res = await fetch("/api/transactions/import", {
+                method: "POST",
+                body: form,
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "导入失败");
+            // Mirror the import into the same in-memory state the fetch path
+            // would have populated, so the rest of the UI works unchanged.
+            stopSSE();
+            stopPolling();
+            fetchSummary.textContent =
+                `${data.message}（${data.date_start} ~ ${data.date_end}）`;
+            toast(`✅ ${data.message}`, "success");
+            if (data.skipped_rows) {
+                toast(`⚠ ${data.skipped_rows} 行解析失败，已跳过`, "warning", 5000);
+            }
+            btnReport.disabled = false;
+            btnReport.textContent = "生成报告";
+            showSection("options");
+            refreshLlmBadge();
+        } catch (err) {
+            toast(`❌ ${err.message}`, "error");
+        } finally {
+            setBtnLoading(btnImportCsv, false, "📤 解析并使用");
+        }
+    }
+
     // =====================================================================
     // LLM Settings Modal
     // =====================================================================
@@ -605,6 +670,13 @@
     btnScreenshot.addEventListener("click", exportScreenshot);
     btnExportCsv.addEventListener("click", () => exportTransactions("csv", btnExportCsv));
     btnExportXlsx.addEventListener("click", () => exportTransactions("xlsx", btnExportXlsx));
+
+    // Advanced options
+    btnFetchAll.addEventListener("click", startFetchAll);
+    btnImportCsv.addEventListener("click", importCsv);
+    csvFileInput.addEventListener("change", () => {
+        btnImportCsv.disabled = !csvFileInput.files || !csvFileInput.files[0];
+    });
     btnSettings.addEventListener("click", openSettings);
     btnTheme.addEventListener("click", () => {}); // handled above via addEventListener
 

@@ -52,8 +52,10 @@ def test_cache_key_depends_on_all_params():
 def test_cache_expires_after_ttl():
     txs = _sample_txs()
     cache.set_cached("openid", "2025-09-01", "2025-09-30", txs)
-    # TTL of 0 seconds → immediately stale
-    assert cache.get_cached("openid", "2025-09-01", "2025-09-30", ttl=0) is None
+    # Negative TTL (or 0 in a fast clock) must be treated as already stale.
+    # A negative value is robust against sub-millisecond clock resolution
+    # that would otherwise make a fresh entry look exactly 0s old.
+    assert cache.get_cached("openid", "2025-09-01", "2025-09-30", ttl=-1) is None
 
 
 def test_clear_cache_removes_files():

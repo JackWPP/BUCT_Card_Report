@@ -46,7 +46,7 @@
                 <button type="button" class="chip" data-range="1">近1月</button>
                 <button type="button" class="chip" data-range="3">近3月</button>
                 <button type="button" class="chip" data-range="6">近半年</button>
-                <button type="button" class="chip" data-range="10">近10月</button>
+                <button type="button" class="chip" data-range="12">近12月</button>
             </div>
             <div class="date-row">
                 <div class="date-group">
@@ -66,6 +66,33 @@
                 <input type="checkbox" id="opt-force-refresh">
                 <span>跳过缓存，强制重新拉取</span>
             </label>
+
+            <details class="advanced-section">
+                <summary>高级：快捷拉取 / 导入 CSV</summary>
+
+                <div class="enroll-row">
+                    <div class="date-group">
+                        <label for="enroll-date">入学日期</label>
+                        <input type="date" id="enroll-date">
+                    </div>
+                    <button id="btn-fetch-all" class="btn btn-secondary" type="button">
+                        📥 拉取在校全部
+                    </button>
+                </div>
+                <p class="hint-mini">自动从入学日期拉取到今天的全部交易（可能耗时较长）</p>
+
+                <div class="import-divider"><span>或</span></div>
+
+                <div class="import-row">
+                    <input type="file" id="csv-file" accept=".csv" class="file-input">
+                    <button id="btn-import-csv" class="btn btn-secondary" type="button" disabled>
+                        📤 解析并使用
+                    </button>
+                </div>
+                <p class="hint-mini">
+                    支持本工具导出的 CSV 格式，或任意含「交易时间/商户名称/金额」三列的 CSV
+                </p>
+            </details>
         </section>
 
         <!-- Step 2: Progress -->

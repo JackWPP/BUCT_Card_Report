@@ -12,6 +12,7 @@ import json
 import logging
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify, send_file, Response
@@ -20,6 +21,7 @@ from config import get_config, AppConfig
 from fetcher.url_parser import parse_card_url
 from fetcher.browser import fetch_transactions
 from fetcher import cache
+from fetcher.models import Transaction
 from analyzer.stats import analyze
 from analyzer.categories import categorize
 from reporter.renderer import render_report
@@ -466,6 +468,151 @@ def api_export_transactions() -> Response:
     except Exception as e:
         logger.exception("Export failed")
         return jsonify({"error": f"导出失败: {e}"}), 500
+
+
+# --------------------------------------------------------------------------- #
+# Transaction import
+# --------------------------------------------------------------------------- #
+
+# Column-name aliases for flexible import — supports the app's own export
+# format plus CSVs from other tools (banks, manual spreadsheets, etc.).
+_IMPORT_COLUMN_ALIASES = {
+    "timestamp": ["交易时间", "时间", "交易日期", "日期", "date", "timestamp", "datetime", "time"],
+    "merchant":  ["商户名称", "商户", "商家", "merchant", "description", "name", "narration"],
+    "amount":    ["金额(元)", "金额", "amount", "txamt", "money", "value"],
+    # 类型 and 分类 are optional; type is inferred from sign if missing,
+    # and category is intentionally ignored (analyzer re-categorizes).
+}
+
+_TIME_FORMATS = (
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%dT%H:%M",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y/%m/%d %H:%M",
+    "%Y/%m/%d",
+    "%Y年%m月%d日 %H:%M:%S",
+    "%Y年%m月%d日 %H:%M",
+    "%Y年%m月%d日",
+)
+
+
+def _parse_time(s: str) -> datetime:
+    s = (s or "").strip()
+    if not s:
+        raise ValueError("空时间")
+    for fmt in _TIME_FORMATS:
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"无法识别的时间格式: {s!r}")
+
+
+def _parse_amount(s) -> float:
+    s = str(s or "").strip()
+    # Strip currency symbols / thousands separators / units
+    cleaned = (
+        s.replace("¥", "").replace("￥", "").replace("元", "")
+        .replace(",", "").replace(" ", "")
+    )
+    if not cleaned:
+        raise ValueError("空金额")
+    return float(cleaned)
+
+
+def _map_csv_columns(headers: list[str]) -> dict:
+    """Match CSV headers to our field names using alias lookup."""
+    # Normalize: strip whitespace, lowercase for case-insensitive match.
+    norm = {h.strip().lower(): h.strip() for h in headers if h}
+    mapping = {}
+    for field, aliases in _IMPORT_COLUMN_ALIASES.items():
+        for alias in aliases:
+            if alias.lower() in norm:
+                mapping[field] = norm[alias.lower()]
+                break
+    return mapping
+
+
+@app.route("/api/transactions/import", methods=["POST"])
+def api_import_transactions() -> Response:
+    """Parse a CSV file of transactions and load it into the app state.
+
+    Skips the network fetch entirely — useful for re-importing an earlier
+    export, or feeding data from another source (bank CSV, manual sheet).
+    On success, the frontend can jump straight to the report step.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "未选择文件"}), 400
+    f = request.files["file"]
+    if not f.filename or not f.filename.lower().endswith(".csv"):
+        return jsonify({"error": "请选择 .csv 文件"}), 400
+
+    raw = f.read()
+    # Drop UTF-8 BOM if present (Excel-issued CSVs often have one).
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # Fall back to GBK — some bank CSVs use it.
+        text = raw.decode("gbk", errors="replace")
+
+    reader = csv.DictReader(io.StringIO(text))
+    headers = reader.fieldnames or []
+    mapping = _map_csv_columns(headers)
+    missing = [k for k in ("timestamp", "merchant", "amount") if k not in mapping]
+    if missing:
+        return jsonify({
+            "error": f"CSV 缺少必要列: {', '.join(missing)}",
+            "found_columns": headers,
+        }), 400
+
+    txs: list[Transaction] = []
+    errors: list[dict] = []
+    for i, row in enumerate(reader, start=2):  # start=2: row 1 is the header
+        if not any((v or "").strip() for v in row.values()):
+            continue  # skip empty rows
+        try:
+            ts = _parse_time(row[mapping["timestamp"]])
+            merchant = (row[mapping["merchant"]] or "").strip() or "未知"
+            amount = _parse_amount(row[mapping["amount"]])
+            txs.append(Transaction(merchant=merchant, amount=amount, timestamp=ts))
+        except (ValueError, KeyError) as e:
+            errors.append({"line": i, "error": str(e)})
+
+    if not txs:
+        return jsonify({"error": "CSV 中没有可用的交易记录", "errors": errors[:10]}), 400
+
+    analysis = analyze(txs)
+    timestamps = [t.timestamp for t in txs]
+    with _state_lock:
+        _state["transactions"] = txs
+        _state["analysis"] = analysis
+        _state["status"] = "done"
+        _state["message"] = (
+            f"已从 CSV 导入 {len(txs)} 条记录"
+            + (f"（{len(errors)} 行解析失败）" if errors else "")
+        )
+        _state["count"] = 1
+        _state["total"] = 1
+        _state["started_at"] = time.time()
+
+    logger.info(
+        f"Imported {len(txs)} transactions from CSV ({f.filename}), "
+        f"skipped {len(errors)} bad rows"
+    )
+    return jsonify({
+        "status": "done",
+        "message": _state["message"],
+        "count": len(txs),
+        "date_start": min(timestamps).strftime("%Y-%m-%d"),
+        "date_end": max(timestamps).strftime("%Y-%m-%d"),
+        "skipped_rows": len(errors),
+        "errors": errors[:10],
+    })
 
 
 # --------------------------------------------------------------------------- #

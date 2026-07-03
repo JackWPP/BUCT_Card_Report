@@ -48,6 +48,8 @@
 - 📱 完整响应式布局，移动端友好
 - 📷 **一键导出长截图**（2× 高清 PNG，完整滚动页面）—— 由后端 Playwright 真实渲染
 - 📤 **交易明细导出**（CSV / XLSX，含自动分类）—— CSV 带 UTF-8 BOM 兼容中文 Excel，XLSX 走 openpyxl 带表头样式
+- 📥 **导入 CSV**（复用本工具导出的明细文件，或任意含「交易时间/商户/金额」三列的 CSV）—— 跳过抓取，直接进入分析
+- 🏫 **入学日期一键拉取** —— 输入入学日期，自动从入学日拉到今天
 - ♿ 支持 `prefers-reduced-motion` 无障碍偏好
 
 ---
@@ -195,6 +197,7 @@ BUCT_Card_Report/
 | `GET` | `/api/report/download` | 下载报告文件 |
 | `GET` | `/api/report/screenshot` | **导出长截图**（PNG，2× DPR 完整滚动页） |
 | `GET` | `/api/transactions/export?format=csv\|xlsx` | **导出交易明细**（CSV 带 UTF-8 BOM / XLSX 带表头样式） |
+| `POST` | `/api/transactions/import` | **导入 CSV**（multipart file upload） |
 | `GET` | `/api/llm/config` | 读取 LLM 配置（Key 掩码） |
 | `POST` | `/api/llm/config` | 更新并持久化 LLM 配置 |
 | `POST` | `/api/llm/test` | 测试 LLM 连接 |
