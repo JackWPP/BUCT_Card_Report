@@ -160,7 +160,11 @@ topMerchants.slice(0, 15).forEach(function(m, i) {
 (function () {
   var box = document.getElementById('llm-insight-box');
   if (!box) return;
-  var raw = {{ llm_insight | tojson if llm_insight else '""' }};
+  // Always go through tojson — even when llm_insight is empty — so the
+  // output is a properly JS-escaped string literal. Writing `""` directly
+  // here would be HTML-entity encoded by Jinja autoescape to `&#34;`,
+  // which is a JS syntax error and breaks the whole script block.
+  var raw = {{ (llm_insight or "") | tojson }};
   try {
     if (window.marked && window.DOMPurify) {
       box.innerHTML = DOMPurify.sanitize(marked.parse(raw));

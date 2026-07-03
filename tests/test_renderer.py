@@ -61,6 +61,26 @@ def test_render_without_llm_insight():
     assert 'id="llm-insight-box"' not in html
 
 
+def test_render_script_has_no_html_entity_quotes():
+    """When llm_insight is None, the `var raw = ...;` line must produce a
+    valid JS literal (`var raw = "";`), NOT an HTML-entity-encoded one
+    (`var raw = &#34;&#34;;`) — the latter is a JS syntax error and breaks
+    the whole <script> block, taking the charts and merchant list down with
+    it. Regression test for the 5-year-data bug.
+    """
+    txs, analysis = _sample_data()
+    html = render_report(analysis, txs, llm_insight=None)
+    import re
+    m = re.search(r"var raw = (.*?);", html)
+    assert m, "raw var assignment missing"
+    val = m.group(1)
+    # Valid JS literal: empty string, null, or a properly-escaped quoted string.
+    # Must NOT be HTML-entity-encoded like `&#34;` (which JS would reject).
+    assert "&#" not in val, f"Found HTML entity in JS literal: {val!r}"
+    assert val in ('""', "''", "null") or val.startswith('"') or val.startswith("'"), \
+        f"Unexpected raw value: {val!r}"
+
+
 def test_render_llm_insight_xss_is_neutralized():
     """LLM output must not leak raw HTML into the template — tojson escapes it,
     and the runtime sanitizer runs in the browser."""

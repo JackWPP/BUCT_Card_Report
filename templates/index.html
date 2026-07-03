@@ -121,7 +121,15 @@
                 <button id="btn-restart" class="btn btn-ghost">⟲ 重新分析</button>
             </div>
             <div id="report-container" class="report-container">
-                <iframe id="report-iframe" class="report-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+                <!--
+                  No sandbox: the report is generated server-side by Jinja with
+                  autoescape on, so all user-controlled values (merchant names,
+                  LLM insight) are already escaped. The sandbox combo
+                  allow-scripts+allow-same-origin is flagged by Chrome as
+                  "can escape its sandboxing" anyway, so we'd get no extra
+                  isolation from keeping it.
+                -->
+                <iframe id="report-iframe" class="report-iframe"></iframe>
             </div>
         </section>
 
