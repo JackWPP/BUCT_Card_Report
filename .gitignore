@@ -6,3 +6,5 @@ output_report.html
 dist/
 .venv/
 .pytest_cache/
+.coverage
+htmlcov/

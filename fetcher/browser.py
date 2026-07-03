@@ -5,38 +5,74 @@ from datetime import datetime, timedelta
 from typing import Callable, Optional
 from playwright.sync_api import sync_playwright
 from fetcher.models import Transaction
-from config import Config
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
 SELFTRADE_URL = "{base}/selftrade/openQueryCardSelfTrade?openid={openid}&displayflag=1&id=23"
 MAX_DAYS = 31
 
-# JS to monkey-patch $.ajax and capture API responses
+# JS to monkey-patch $.ajax and capture API responses.
+#
+# jQuery's $.ajax has two call signatures — $.ajax(url, settings) and
+# $.ajax(settings) — and some page wrappers invoke it with null/undefined.
+# We normalize every call down to a single settings object so reading
+# .success / .error can never throw (the previous version crashed with
+# "Cannot read properties of null" when opts was null). The patch is also
+# idempotent so a re-evaluate won't double-wrap and cause infinite recursion.
 PATCH_JS = """
-window.__cardData = [];
-window.__cardFetchDone = false;
-window.__cardFetchError = null;
-const origAjax = $.ajax;
-$.ajax = function(opts) {
-    const origSuccess = opts.success;
-    opts.success = function(data) {
-        if (opts.url && opts.url.indexOf('queryCardSelfTradeList') !== -1) {
-            if (data && data.success && data.resultData) {
-                for (const item of data.resultData) {
-                    window.__cardData.push(item);
-                }
-            }
+() => {
+    if (window.__cardAjaxPatched) return;
+    var jq = (typeof jQuery !== 'undefined') ? jQuery
+            : (typeof $ !== 'undefined') ? $ : null;
+    if (!jq || !jq.ajax) return;
+    window.__cardAjaxPatched = true;
+    window.__cardData = window.__cardData || [];
+    window.__cardFetchError = null;
+
+    var origAjax = jq.ajax;
+
+    jq.ajax = function (url, options) {
+        // Normalize jQuery call signatures into one settings object.
+        var settings;
+        if (typeof url === 'string') {
+            settings = options || {};
+            settings.url = url;
+        } else {
+            settings = url || {};
         }
-        if (origSuccess) origSuccess.apply(this, arguments);
+
+        var origSuccess = settings.success;
+        var origError = settings.error;
+
+        settings.success = function (data) {
+            try {
+                if (settings.url && settings.url.indexOf('queryCardSelfTradeList') !== -1) {
+                    if (data && data.success && data.resultData) {
+                        var items = data.resultData;
+                        for (var i = 0; i < items.length; i++) {
+                            window.__cardData.push(items[i]);
+                        }
+                    }
+                }
+            } catch (e) {
+                window.__cardFetchError = 'capture: ' + e;
+            }
+            if (typeof origSuccess === 'function') {
+                origSuccess.apply(this, arguments);
+            }
+        };
+
+        settings.error = function (xhr, status, err) {
+            window.__cardFetchError = status + ': ' + err;
+            if (typeof origError === 'function') {
+                origError.apply(this, arguments);
+            }
+        };
+
+        return origAjax.call(this, settings);
     };
-    const origError = opts.error;
-    opts.error = function(xhr, status, err) {
-        window.__cardFetchError = status + ': ' + err;
-        if (origError) origError.apply(this, arguments);
-    };
-    return origAjax.apply(this, arguments);
-};
+}
 """
 
 # JS to trigger a query for a specific date range
@@ -68,7 +104,7 @@ def fetch_transactions(
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d")
 
-    cfg = Config()
+    cfg = get_config()
     url = SELFTRADE_URL.format(base=cfg.card_base_url, openid=openid)
 
     all_data: list[dict] = []
@@ -81,9 +117,19 @@ def fetch_transactions(
 
         logger.info(f"Navigating to card system: {url}")
         page.goto(url, wait_until="networkidle", timeout=30000)
-        time.sleep(1)
 
-        # Inject the monkey-patch
+        # Wait for jQuery to be available before patching. networkidle usually
+        # guarantees this, but asserting explicitly turns a slow/broken page
+        # into a clear error instead of a downstream null-deref.
+        try:
+            page.wait_for_function(
+                "() => (typeof jQuery !== 'undefined') || (typeof $ !== 'undefined')",
+                timeout=10000,
+            )
+        except Exception:
+            logger.warning("jQuery did not become available; ajax patch may not apply")
+
+        # Inject the monkey-patch (idempotent + null-safe)
         page.evaluate(PATCH_JS)
 
         # Walk backwards from end_date in MAX_DAYS chunks

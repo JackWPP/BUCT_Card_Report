@@ -1,10 +1,21 @@
-# llm/insights.py
+"""LLM-powered consumer insight generation.
+
+Uses any OpenAI-compatible chat completion endpoint (DeepSeek, Qwen,
+SiliconFlow, Zhipu, OpenAI, etc). The endpoint and credentials are
+configured at runtime via the web UI and stored in a local config file.
+"""
+from __future__ import annotations
+
 import logging
+from typing import Tuple
+
 from openai import OpenAI
+
 from analyzer.stats import AnalysisResult
-from config import Config
+from config import AppConfig
 
 logger = logging.getLogger(__name__)
+
 
 SYSTEM_PROMPT = """你是一个校园卡消费分析助手。根据用户提供的消费统计数据，用轻松有趣的语气生成个性化消费洞察。
 要求：
@@ -54,36 +65,71 @@ def _build_prompt(analysis: AnalysisResult) -> str:
     return "\n".join(parts)
 
 
-def generate_insight(analysis: AnalysisResult, config: Config) -> str | None:
-    """Generate personalized insight using an LLM.
+def generate_insight(analysis: AnalysisResult, config: AppConfig) -> str | None:
+    """Generate personalized insight using the configured LLM.
 
     Args:
         analysis: Computed analysis results.
         config: App config with LLM API settings.
 
     Returns:
-        LLM-generated insight text, or None if disabled/error.
+        LLM-generated insight text, or None on failure / not configured.
     """
-    if not config.llm_enabled:
-        logger.info("LLM not configured, skipping insight generation")
+    if not config.llm.is_ready():
+        logger.info("LLM not ready, skipping insight generation")
         return None
 
     try:
         client = OpenAI(
-            api_key=config.llm_api_key,
-            base_url=config.llm_base_url,
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            timeout=60.0,
         )
         prompt = _build_prompt(analysis)
         response = client.chat.completions.create(
-            model=config.llm_model,
+            model=config.llm.model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"请分析以下校园卡消费数据并给出洞察：\n\n{prompt}"},
+                {
+                    "role": "user",
+                    "content": f"请分析以下校园卡消费数据并给出洞察：\n\n{prompt}",
+                },
             ],
             max_tokens=800,
             temperature=0.7,
         )
-        return response.choices[0].message.content.strip()
+        return (response.choices[0].message.content or "").strip()
     except Exception as e:
         logger.error(f"LLM insight generation failed: {e}")
         return None
+
+
+def test_connection(config: AppConfig) -> Tuple[bool, str]:
+    """Probe the LLM endpoint with a tiny prompt.
+
+    Returns (ok, message). `message` is human-readable and safe to surface
+    directly in the UI.
+    """
+    if not config.llm.api_key or not config.llm.base_url:
+        return False, "API Key 或 Base URL 为空"
+
+    try:
+        client = OpenAI(
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            timeout=20.0,
+        )
+        response = client.chat.completions.create(
+            model=config.llm.model or "deepseek-chat",
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=4,
+            temperature=0,
+        )
+        # Touch the response to surface network/parse errors early.
+        _ = response.choices[0].message.content
+        return True, f"连接成功 (model={response.model})"
+    except Exception as e:
+        err = str(e)
+        # Trim noisy stack traces but keep the first line informative.
+        short = err.split("\n", 1)[0][:200]
+        return False, f"连接失败: {short}"

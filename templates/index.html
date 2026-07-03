@@ -4,23 +4,50 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BUCT 校园卡消费分析</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <!-- Toast container -->
+    <div id="toast-container" class="toast-container"></div>
+
     <div class="container">
         <header>
-            <h1>BUCT 校园卡消费分析</h1>
-            <p class="subtitle">粘贴校园卡链接，一键生成消费报告</p>
+            <div class="header-row">
+                <div>
+                    <h1>📊 BUCT 校园卡消费分析</h1>
+                    <p class="subtitle">粘贴校园卡链接，一键生成专属消费报告</p>
+                </div>
+                <div class="header-actions">
+                    <button id="btn-theme" class="icon-btn" title="切换主题" aria-label="切换主题">🌗</button>
+                    <button id="btn-settings" class="icon-btn" title="LLM 设置" aria-label="LLM 设置">⚙️</button>
+                </div>
+            </div>
         </header>
 
         <!-- Step 1: URL Input -->
         <section id="step-input" class="card">
-            <h2>1. 输入链接</h2>
-            <p class="hint">请在企业微信中打开校园卡页面，复制地址栏中包含 <code>openid=</code> 的完整链接粘贴到下方。</p>
+            <h2><span class="step-num">1</span>输入链接</h2>
+            <p class="hint">在企业微信中打开校园卡页面，复制地址栏中包含 <code>openid=</code> 的完整链接粘贴到下方。
+                <span class="hint-toggle" id="url-help-toggle">怎么复制？</span>
+            </p>
+            <div id="url-help" class="help-box hidden">
+                <ol>
+                    <li>在企业微信中找到「校园卡」或「一卡通」小程序/页面</li>
+                    <li>点击进入「交易明细」或「流水查询」</li>
+                    <li>复制浏览器地址栏的完整 URL（包含 openid 参数）</li>
+                </ol>
+            </div>
             <textarea id="url-input" rows="3" placeholder="https://mcard.buct.edu.cn/selftrade/openQueryCardSelfTrade?openid=xxx&displayflag=1&id=23"></textarea>
             <div id="url-error" class="error-msg hidden"></div>
 
-            <h2>2. 选择时间范围</h2>
+            <h2><span class="step-num">2</span>选择时间范围</h2>
+            <div class="quick-ranges">
+                <button type="button" class="chip" data-range="1">近1月</button>
+                <button type="button" class="chip" data-range="3">近3月</button>
+                <button type="button" class="chip" data-range="6">近半年</button>
+                <button type="button" class="chip" data-range="10">近10月</button>
+            </div>
             <div class="date-row">
                 <div class="date-group">
                     <label for="start-date">开始日期</label>
@@ -32,7 +59,13 @@
                 </div>
             </div>
 
-            <button id="btn-fetch" class="btn btn-primary">开始分析</button>
+            <button id="btn-fetch" class="btn btn-primary">
+                <span class="btn-text">开始分析</span>
+            </button>
+            <label class="force-refresh-toggle">
+                <input type="checkbox" id="opt-force-refresh">
+                <span>跳过缓存，强制重新拉取</span>
+            </label>
         </section>
 
         <!-- Step 2: Progress -->
@@ -41,53 +74,153 @@
             <div class="progress-bar-container">
                 <div id="progress-bar" class="progress-bar"></div>
             </div>
-            <p id="progress-msg" class="progress-msg">正在启动浏览器...</p>
-            <p id="progress-count" class="progress-count"></p>
+            <div class="progress-info">
+                <p id="progress-msg" class="progress-msg">正在启动浏览器...</p>
+                <p id="progress-count" class="progress-count"></p>
+            </div>
+            <p id="progress-elapsed" class="progress-elapsed"></p>
         </section>
 
         <!-- Step 3: Options -->
         <section id="step-options" class="card hidden">
-            <h2>3. 生成报告</h2>
+            <h2><span class="step-num">3</span>生成报告</h2>
             <p id="fetch-summary" class="summary-text"></p>
 
             <div class="options-group">
                 <label class="option-item">
                     <input type="checkbox" id="opt-basic" checked disabled>
-                    <span class="option-label">基础分析（消费统计、分类、趋势）</span>
+                    <span class="option-label">
+                        <strong>基础分析</strong>
+                        <span class="option-desc">消费统计、分类、趋势、商户排名</span>
+                    </span>
                 </label>
-                {% if llm_available %}
-                <label class="option-item">
+                <label class="option-item" id="opt-llm-wrap">
                     <input type="checkbox" id="opt-llm">
-                    <span class="option-label">AI 增强分析（由大模型生成个性化消费洞察）</span>
+                    <span class="option-label">
+                        <strong>AI 增强分析 <span id="llm-status-badge" class="badge">未配置</span></strong>
+                        <span class="option-desc">由大模型生成个性化消费洞察</span>
+                    </span>
                 </label>
-                {% endif %}
             </div>
 
-            <button id="btn-report" class="btn btn-primary">生成报告</button>
+            <button id="btn-report" class="btn btn-primary">
+                <span class="btn-text">生成报告</span>
+            </button>
         </section>
 
         <!-- Step 4: Report -->
         <section id="step-report" class="card hidden">
             <h2>消费报告</h2>
             <div class="report-actions">
-                <a id="btn-download" class="btn btn-secondary" href="/api/report/download" target="_blank">下载报告</a>
-                <button id="btn-new-tab" class="btn btn-secondary">在新窗口打开</button>
+                <a id="btn-download" class="btn btn-secondary" href="/api/report/download" download>⬇ 下载报告</a>
+                <button id="btn-screenshot" class="btn btn-secondary">📷 导出长截图</button>
+                <button id="btn-new-tab" class="btn btn-secondary">↗ 在新窗口打开</button>
+                <button id="btn-restart" class="btn btn-ghost">⟲ 重新分析</button>
             </div>
             <div id="report-container" class="report-container">
-                <iframe id="report-iframe" class="report-iframe"></iframe>
+                <iframe id="report-iframe" class="report-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
             </div>
         </section>
 
         <footer>
-            <p>BUCT 校园卡消费分析工具 &middot; 数据仅在本地处理</p>
+            <p>BUCT 校园卡消费分析工具 · 数据仅在本地处理 · <a href="#" id="link-about">关于</a></p>
         </footer>
     </div>
 
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="modal-backdrop" data-close-modal></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="settings-title">⚙️ LLM 设置</h2>
+                <button class="icon-btn" data-close-modal aria-label="关闭">✕</button>
+            </div>
+
+            <div class="modal-body">
+                <p class="hint">
+                    配置大模型服务即可启用「AI 增强分析」。配置仅保存在本地，不会上传任何服务器。
+                </p>
+
+                <form id="llm-config-form" autocomplete="off" onsubmit="return false">
+                <div class="form-group">
+                    <label>服务商预设</label>
+                    <div id="provider-list" class="provider-list"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="llm-base-url">Base URL <span class="muted">(OpenAI 兼容端点)</span></label>
+                    <input type="text" id="llm-base-url" placeholder="https://api.deepseek.com/v1">
+                </div>
+
+                <div class="form-group">
+                    <label for="llm-model">模型名称</label>
+                    <input type="text" id="llm-model" placeholder="deepseek-chat">
+                </div>
+
+                <div class="form-group">
+                    <label for="llm-api-key">API Key</label>
+                    <div class="input-with-action">
+                        <input type="password" id="llm-api-key" placeholder="sk-..." autocomplete="off">
+                        <button type="button" id="btn-toggle-key" class="icon-btn-sm" title="显示/隐藏">👁</button>
+                    </div>
+                    <p class="hint-mini">
+                        当前 Key：<span id="current-key-display">未设置</span>
+                        <button type="button" id="btn-clear-key" class="link-btn">清除</button>
+                    </p>
+                </div>
+
+                <label class="option-item">
+                    <input type="checkbox" id="llm-enabled">
+                    <span class="option-label">
+                        <strong>启用 AI 增强分析</strong>
+                        <span class="option-desc">取消勾选可临时禁用（配置保留）</span>
+                    </span>
+                </label>
+                </form>
+
+                <div id="llm-test-result" class="test-result hidden"></div>
+            </div>
+
+            <div class="modal-footer">
+                <button id="btn-test-llm" class="btn btn-secondary">🔌 测试连接</button>
+                <button id="btn-save-llm" class="btn btn-primary">💾 保存</button>
+            </div>
+
+            <details class="config-info">
+                <summary>📁 配置文件位置</summary>
+                <code id="config-path"></code>
+            </details>
+        </div>
+    </div>
+
+    <!-- About Modal -->
+    <div id="about-modal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-close-modal></div>
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h2>关于</h2>
+                <button class="icon-btn" data-close-modal aria-label="关闭">✕</button>
+            </div>
+            <div class="modal-body">
+                <p><strong>BUCT 校园卡消费分析</strong> 是一个开源工具，用于分析北京化工大学校园卡消费记录。</p>
+                <p>技术栈：Python · Flask · Playwright · Chart.js</p>
+                <p>所有数据均在本地处理，不会上传到任何服务器。</p>
+
+                <div class="cache-box">
+                    <div class="cache-row">
+                        <span>本地缓存：<span id="cache-info">-</span></span>
+                        <button id="btn-clear-cache" class="btn btn-ghost btn-sm">清空缓存</button>
+                    </div>
+                    <p class="hint-mini">缓存可避免对相同时间范围的重复拉取（每次拉取需启动浏览器，耗时较长）。30 分钟后自动失效。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Pass server-side config to JS
-        window.APP_CONFIG = {
-            llmAvailable: {{ 'true' if llm_available else 'false' }}
-        };
+        // Server-rendered config — bootstraps the settings UI on first paint
+        // without an extra round trip.
+        window.APP_CONFIG = {{ config | tojson }};
     </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>

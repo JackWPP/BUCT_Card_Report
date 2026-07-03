@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BUCT 校园卡消费报告</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
 :root{--primary:#2F5496;--accent:#E74C3C;--green:#27AE60;--bg:#F5F7FA;--card:#FFF;--text:#2C3E50;--muted:#95A5A6;--border:#E8EEF7}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -27,7 +29,16 @@ body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-s
 .merchant-bar .name{font-size:13px;margin-bottom:4px;display:flex;justify-content:space-between}
 .merchant-bar .bar-bg{height:8px;background:var(--border);border-radius:4px;overflow:hidden}
 .merchant-bar .bar-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--primary),#5B8DEF)}
-.insight-box{background:#F0F4FF;border-radius:8px;padding:16px;margin-top:16px;border-left:4px solid var(--primary);white-space:pre-wrap;font-size:14px;line-height:1.8}
+.insight-box{background:#F0F4FF;border-radius:8px;padding:16px;margin-top:16px;border-left:4px solid var(--primary);font-size:14px;line-height:1.8}
+.insight-box p{margin:0 0 10px}
+.insight-box p:last-child{margin-bottom:0}
+.insight-box h1,.insight-box h2,.insight-box h3,.insight-box h4{color:var(--primary);margin:14px 0 8px;font-size:16px;font-weight:600}
+.insight-box ul,.insight-box ol{margin:6px 0 10px;padding-left:22px}
+.insight-box li{margin:3px 0}
+.insight-box strong{color:var(--text)}
+.insight-box code{background:#fff;padding:1px 5px;border-radius:3px;font-size:12px;font-family:"SF Mono","Consolas",monospace}
+.insight-box blockquote{border-left:3px solid var(--border);margin:8px 0;padding:2px 12px;color:var(--muted)}
+.insight-box a{color:var(--primary)}
 .meal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center}
 .meal-item{padding:16px 8px;border-radius:8px;background:var(--bg)}
 .meal-item .pct{font-size:20px;font-weight:700;color:var(--primary);margin:8px 0}
@@ -94,7 +105,7 @@ body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-s
   {% if llm_insight %}
   <div class="section">
     <h2>AI 个性化洞察</h2>
-    <div class="insight-box">{{ llm_insight }}</div>
+    <div class="insight-box" id="llm-insight-box"></div>
   </div>
   {% endif %}
 
@@ -107,6 +118,13 @@ body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-s
 const monthly = {{ analysis.monthly | tojson }};
 const categories = {{ analysis.categories | tojson }};
 const topMerchants = {{ analysis.top_merchants | tojson }};
+
+// Escape user-controlled strings before injecting into innerHTML.
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = (s == null ? '' : String(s));
+  return d.innerHTML;
+}
 
 new Chart(document.getElementById('monthlyChart'), {
   type: 'bar',
@@ -132,10 +150,31 @@ new Chart(document.getElementById('catChart'), {
 
 var maxAmt = topMerchants.length > 0 ? topMerchants[0].total : 1;
 var list = document.getElementById('merchantList');
-topMerchants.slice(0, 10).forEach(function(m, i) {
+topMerchants.slice(0, 15).forEach(function(m, i) {
   var pct = (m.total / maxAmt * 100).toFixed(0);
-  list.innerHTML += '<div class="merchant-bar"><div class="name"><span>' + (i+1) + '. ' + m.merchant + '</span><span>¥' + m.total + ' (' + m.count + '次)</span></div><div class="bar-bg"><div class="bar-fill" style="width:' + pct + '%"></div></div></div>';
+  list.innerHTML += '<div class="merchant-bar"><div class="name"><span>' + (i+1) + '. ' + esc(m.merchant) + '</span><span>¥' + m.total + ' (' + m.count + '次)</span></div><div class="bar-bg"><div class="bar-fill" style="width:' + pct + '%"></div></div></div>';
 });
+
+// Render the LLM insight as sanitized Markdown (falls back to plain text if
+// the CDN libs failed to load).
+(function () {
+  var box = document.getElementById('llm-insight-box');
+  if (!box) return;
+  var raw = {{ llm_insight | tojson if llm_insight else '""' }};
+  try {
+    if (window.marked && window.DOMPurify) {
+      box.innerHTML = DOMPurify.sanitize(marked.parse(raw));
+    } else {
+      box.textContent = raw;
+    }
+  } catch (e) {
+    box.textContent = raw;
+  }
+})();
+
+// Signal that all charts / merchants / insight have been rendered — the
+// screenshot endpoint waits on this before capturing the page.
+window.__reportRendered = true;
 </script>
 </body>
 </html>
