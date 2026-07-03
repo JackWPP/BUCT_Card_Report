@@ -825,6 +825,8 @@ footer a:hover { color: var(--primary); }
     font-size: 12px;
 }
 
+.btn-block { width: 100%; }
+
 /* Cache box in About modal */
 .cache-box {
     margin-top: 16px;

@@ -89,6 +89,7 @@ def fetch_transactions(
     start_date: str = "2025-09-01",
     end_date: str | None = None,
     on_progress: Optional[Callable[[str, int], None]] = None,
+    stop_after_empty: int = 0,
 ) -> list[Transaction]:
     """Fetch all transactions from BUCT card system via Playwright.
 
@@ -97,6 +98,11 @@ def fetch_transactions(
         start_date: Earliest date to fetch (YYYY-MM-DD).
         end_date: Latest date (defaults to today). Format: YYYY-MM-DD.
         on_progress: Callback(message: str, count: int) for progress updates.
+        stop_after_empty: If > 0, halt the backward walk after this many
+            consecutive batches that returned no new records. Used by the
+            "find first record" flow to stop shortly after we've gone past
+            the earliest transaction, instead of always walking all the way
+            back to start_date.
 
     Returns:
         List of Transaction objects, newest first.
@@ -135,6 +141,7 @@ def fetch_transactions(
         # Walk backwards from end_date in MAX_DAYS chunks
         cursor = end
         batch_num = 0
+        consecutive_empty = 0
         while cursor > start:
             batch_num += 1
             batch_begin = cursor - timedelta(days=MAX_DAYS - 1)
@@ -158,6 +165,14 @@ def fetch_transactions(
             new_data = page.evaluate("window.__cardData")
             if len(new_data) > count_before:
                 all_data = new_data[:]
+                consecutive_empty = 0
+            else:
+                consecutive_empty += 1
+                if stop_after_empty and consecutive_empty >= stop_after_empty:
+                    logger.info(
+                        f"Early stop after {consecutive_empty} consecutive empty batches"
+                    )
+                    break
 
             logger.info(f"  -> captured {len(all_data) - count_before} new records (total: {len(all_data)})")
 
@@ -192,3 +207,60 @@ def fetch_transactions(
 
     logger.info(f"Fetched {len(transactions)} transactions")
     return transactions
+
+
+def find_and_fetch_all(
+    openid: str,
+    max_lookback_years: int = 10,
+    on_progress: Optional[Callable[[str, int], None]] = None,
+) -> tuple[list[Transaction], Optional["datetime.date"]]:
+    """Recursively walk the card system backward to find the first record.
+
+    Strategy: ask the card system for a wide range (today minus
+    max_lookback_years) and let ``fetch_transactions`` walk backward in
+    31-day batches, halting after 3 consecutive empty batches. Once the
+    walk stops, the oldest transaction in the returned list is the first
+    record we have.
+
+    The 3-batch tolerance absorbs random empty chunks (a single batch with
+    no data shouldn't trigger an early stop — the card system can
+    occasionally return nothing for short windows where records exist).
+
+    Args:
+        openid: Campus card openid.
+        max_lookback_years: Upper bound for the search. The card system
+            only goes back ~10 years for typical students; tune higher if
+            needed.
+        on_progress: Same signature as for ``fetch_transactions``.
+
+    Returns:
+        (transactions, first_date) — empty list and None if no records
+        were found at all.
+    """
+    from datetime import date as _date, timedelta as _td
+
+    today = _date.today()
+    earliest = today.replace(year=today.year - max_lookback_years)
+
+    if on_progress:
+        on_progress(
+            f"正在递归查找最早记录（最早探测 {earliest}）...", 0
+        )
+
+    txs = fetch_transactions(
+        openid,
+        earliest.strftime("%Y-%m-%d"),
+        today.strftime("%Y-%m-%d"),
+        on_progress=on_progress,
+        stop_after_empty=3,
+    )
+
+    if not txs:
+        return [], None
+
+    first_date = min(t.timestamp.date() for t in txs)
+    if on_progress:
+        on_progress(
+            f"找到最早记录: {first_date}（共 {len(txs)} 笔）", len(txs)
+        )
+    return txs, first_date

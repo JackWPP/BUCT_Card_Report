@@ -50,6 +50,7 @@
 - 📤 **交易明细导出**（CSV / XLSX，含自动分类）—— CSV 带 UTF-8 BOM 兼容中文 Excel，XLSX 走 openpyxl 带表头样式
 - 📥 **导入 CSV**（复用本工具导出的明细文件，或任意含「交易时间/商户/金额」三列的 CSV）—— 跳过抓取，直接进入分析
 - 🏫 **入学日期一键拉取** —— 输入入学日期，自动从入学日拉到今天
+- 🎯 **一键找到最初记录** —— 递归回溯探测（每 31 天一批，连续 3 个空批就停），自动定位你在校园卡系统的第一笔交易，首次约 2-3 分钟，结果缓存 24 小时
 - ♿ 支持 `prefers-reduced-motion` 无障碍偏好
 
 ---
@@ -191,6 +192,7 @@ BUCT_Card_Report/
 |------|------|------|
 | `GET` | `/` | 主页 |
 | `POST` | `/api/fetch` | 启动数据抓取（后台线程）<br>Body: `{url, start_date, end_date, force_refresh}` |
+| `POST` | `/api/fetch/first` | **递归查找最早记录**（Body: `{url, force_recurse?}`，结果缓存 24h） |
 | `GET` | `/api/status` | 查询抓取进度（轮询备用） |
 | `GET` | `/api/status/stream` | **SSE** 实时进度流 |
 | `POST` | `/api/report` | 生成报告 HTML<br>Body: `{use_llm: bool}` |

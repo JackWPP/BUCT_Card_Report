@@ -39,11 +39,12 @@
     const btnExportCsv = $("btn-export-csv");
     const btnExportXlsx = $("btn-export-xlsx");
 
-    // Advanced options (enroll date / CSV import)
+    // Advanced options (enroll date / CSV import / find first)
     const enrollDate = $("enroll-date");
     const btnFetchAll = $("btn-fetch-all");
     const csvFileInput = $("csv-file");
     const btnImportCsv = $("btn-import-csv");
+    const btnFindFirst = $("btn-find-first");
 
     // Settings modal
     const settingsModal = $("settings-modal");
@@ -438,8 +439,36 @@
         startFetch();
     }
 
+    // --- "🎯 一键找到最初记录" — recursive backward search ---
+    async function startFindFirst() {
+        const url = urlInput.value.trim();
+        if (!url) {
+            showUrlError("请输入校园卡链接");
+            return;
+        }
+        hideUrlError();
+        setBtnLoading(btnFindFirst, true, "递归查找中...");
+
+        try {
+            const res = await fetch("/api/fetch/first", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "请求失败");
+            showSection("progress");
+            resetProgress();
+            // Hint that this may take a while
+            progressMsg.textContent = "正在递归查找最早记录（首次约 2-3 分钟）...";
+            startSSE();
+        } catch (err) {
+            showUrlError(err.message);
+            setBtnLoading(btnFindFirst, false, "🎯 一键找到最初记录");
+        }
+    }
+
     // --- CSV import — bypass fetch, go straight to the options step ---
-    async function importCsv() {
         const file = csvFileInput.files && csvFileInput.files[0];
         if (!file) {
             toast("请先选择 CSV 文件", "error");
@@ -674,6 +703,7 @@
     // Advanced options
     btnFetchAll.addEventListener("click", startFetchAll);
     btnImportCsv.addEventListener("click", importCsv);
+    btnFindFirst.addEventListener("click", startFindFirst);
     csvFileInput.addEventListener("change", () => {
         btnImportCsv.disabled = !csvFileInput.files || !csvFileInput.files[0];
     });

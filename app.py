@@ -19,7 +19,7 @@ from flask import Flask, render_template, request, jsonify, send_file, Response
 
 from config import get_config, AppConfig
 from fetcher.url_parser import parse_card_url
-from fetcher.browser import fetch_transactions
+from fetcher.browser import fetch_transactions, find_and_fetch_all
 from fetcher import cache
 from fetcher.models import Transaction
 from analyzer.stats import analyze
@@ -48,6 +48,26 @@ _state: dict = {
 }
 
 _state_lock = threading.Lock()
+
+# Cache of "earliest record date" per openid so repeated clicks on
+# "🎯 一键找到最初记录" don't re-walk the card system. The first record
+# only moves forward in time (you can't un-spend money), so 24h is plenty.
+_first_record_cache: dict[str, tuple[str, float]] = {}
+_FIRST_RECORD_TTL = 24 * 3600
+
+
+def get_cached_first_date(openid: str) -> str | None:
+    cached = _first_record_cache.get(openid)
+    if cached is None:
+        return None
+    date_str, ts = cached
+    if time.time() - ts > _FIRST_RECORD_TTL:
+        return None
+    return date_str
+
+
+def cache_first_date(openid: str, date_str: str) -> None:
+    _first_record_cache[openid] = (date_str, time.time())
 
 
 def _reset_state() -> None:
@@ -177,6 +197,89 @@ def api_fetch() -> Response:
                 _state["message"] = f"获取失败: {e}"
 
     thread = threading.Thread(target=_run, daemon=True, name="fetch-worker")
+    thread.start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/fetch/first", methods=["POST"])
+def api_fetch_first() -> Response:
+    """Recursively find the earliest record and load all data since then.
+
+    If we've already cached the earliest date for this openid (24h TTL),
+    skip the expensive walk and just fetch from that date forward.
+    """
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    force_recurse = bool(data.get("force_recurse", False))
+    if not url:
+        return jsonify({"error": "请输入校园卡链接"}), 400
+    try:
+        openid = parse_card_url(url)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    with _state_lock:
+        if _state["status"] == "fetching":
+            return jsonify({"error": "正在获取数据中，请等待完成"}), 409
+        _state.update(
+            status="fetching",
+            message="正在查找最早记录...",
+            count=0,
+            total=0,
+            transactions=None,
+            analysis=None,
+            started_at=time.time(),
+        )
+
+    def _run() -> None:
+        try:
+            cached_date = get_cached_first_date(openid) if not force_recurse else None
+
+            def on_progress(msg: str, count: int) -> None:
+                with _state_lock:
+                    _state["message"] = msg
+
+            if cached_date:
+                logger.info(f"Using cached first date {cached_date} for {openid[:8]}")
+                with _state_lock:
+                    _state["message"] = f"使用缓存的最早日期 {cached_date}..."
+                txs = fetch_transactions(
+                    openid,
+                    cached_date,
+                    datetime.now().strftime("%Y-%m-%d"),
+                    on_progress=on_progress,
+                )
+                first_date = cached_date
+            else:
+                txs, first_date = find_and_fetch_all(
+                    openid, on_progress=on_progress
+                )
+                if first_date:
+                    cache_first_date(openid, str(first_date))
+
+            if not txs:
+                with _state_lock:
+                    _state["status"] = "done"
+                    _state["message"] = "未找到任何交易记录"
+                return
+
+            analysis = analyze(txs)
+            with _state_lock:
+                _state["transactions"] = txs
+                _state["analysis"] = analysis
+                _state["status"] = "done"
+                _state["message"] = (
+                    f"找到最早记录 {first_date}，共 {len(txs)} 笔"
+                )
+                _state["count"] = 1
+                _state["total"] = 1
+        except Exception as e:
+            logger.exception("Find-first fetch failed")
+            with _state_lock:
+                _state["status"] = "error"
+                _state["message"] = f"查找失败: {e}"
+
+    thread = threading.Thread(target=_run, daemon=True, name="find-first-worker")
     thread.start()
     return jsonify({"status": "started"})
 
