@@ -36,6 +36,8 @@
     const btnRestart = $("btn-restart");
     const btnDownload = $("btn-download");
     const btnScreenshot = $("btn-screenshot");
+    const btnExportCsv = $("btn-export-csv");
+    const btnExportXlsx = $("btn-export-xlsx");
 
     // Settings modal
     const settingsModal = $("settings-modal");
@@ -371,6 +373,39 @@
         }
     }
 
+    // Export the raw transactions as CSV or XLSX. The server returns the file
+    // directly with Content-Disposition, so we just trigger a download.
+    async function exportTransactions(format, btn) {
+        const label = format === "xlsx" ? "导出 XLSX" : "导出 CSV";
+        setBtnLoading(btn, true, "导出中...");
+        try {
+            const res = await fetch(`/api/transactions/export?format=${format}`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || "导出失败");
+            }
+            // Pull filename from Content-Disposition if present
+            const dispo = res.headers.get("Content-Disposition") || "";
+            const m = dispo.match(/filename="?([^";]+)"?/);
+            const filename = m ? m[1] : `BUCT_校园卡明细.${format}`;
+
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            toast(`✅ ${label}已导出（${filename}）`, "success");
+        } catch (err) {
+            toast(`❌ ${err.message}`, "error");
+        } finally {
+            setBtnLoading(btn, false, format === "xlsx" ? "📊 导出 XLSX" : "📄 导出 CSV");
+        }
+    }
+
     function restartAnalysis() {
         showSection("input");
         setBtnLoading(btnFetch, false, "开始分析");
@@ -568,6 +603,8 @@
     btnNewTab.addEventListener("click", openInNewTab);
     btnRestart.addEventListener("click", restartAnalysis);
     btnScreenshot.addEventListener("click", exportScreenshot);
+    btnExportCsv.addEventListener("click", () => exportTransactions("csv", btnExportCsv));
+    btnExportXlsx.addEventListener("click", () => exportTransactions("xlsx", btnExportXlsx));
     btnSettings.addEventListener("click", openSettings);
     btnTheme.addEventListener("click", () => {}); // handled above via addEventListener
 

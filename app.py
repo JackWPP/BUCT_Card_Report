@@ -6,6 +6,8 @@ HTML report. Optional LLM-powered insights are configurable from the web UI
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import threading
@@ -19,6 +21,7 @@ from fetcher.url_parser import parse_card_url
 from fetcher.browser import fetch_transactions
 from fetcher import cache
 from analyzer.stats import analyze
+from analyzer.categories import categorize
 from reporter.renderer import render_report
 from llm.insights import generate_insight, test_connection
 
@@ -338,6 +341,131 @@ def api_screenshot() -> Response:
     except Exception as e:
         logger.exception("Screenshot generation failed")
         return jsonify({"error": f"截图生成失败: {e}"}), 500
+
+
+# --------------------------------------------------------------------------- #
+# Transaction export
+# --------------------------------------------------------------------------- #
+
+_EXPORT_HEADERS = ["交易时间", "商户名称", "金额(元)", "类型", "绝对金额(元)", "分类"]
+
+
+def _build_filename(transactions, ext: str) -> str:
+    """Build a filename that includes the covered date range."""
+    if not transactions:
+        return f"BUCT_校园卡明细.{ext}"
+    timestamps = [t.timestamp for t in transactions]
+    start = min(timestamps).strftime("%Y%m%d")
+    end = max(timestamps).strftime("%Y%m%d")
+    return f"BUCT_校园卡明细_{start}_to_{end}.{ext}"
+
+
+def _export_rows_csv(transactions) -> str:
+    """Render transactions as a CSV string (UTF-8 BOM added by caller)."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_EXPORT_HEADERS)
+    for t in transactions:
+        writer.writerow([
+            t.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            t.merchant,
+            f"{t.amount:.2f}",
+            "消费" if t.is_expense else "充值",
+            f"{t.abs_amount:.2f}",
+            categorize(t.merchant),
+        ])
+    return buf.getvalue()
+
+
+def _export_rows_xlsx(transactions) -> bytes:
+    """Render transactions as an XLSX file in memory via openpyxl."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "交易明细"
+
+    # Header row with bold white text on blue fill
+    ws.append(_EXPORT_HEADERS)
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(
+        start_color="1A73E8", end_color="1A73E8", fill_type="solid"
+    )
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Data rows — use float for amount columns so Excel can SUM()
+    for t in transactions:
+        ws.append([
+            t.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            t.merchant,
+            float(t.amount),
+            "消费" if t.is_expense else "充值",
+            float(t.abs_amount),
+            categorize(t.merchant),
+        ])
+
+    # Column widths sized to typical content
+    widths = [20, 32, 12, 8, 14, 14]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[chr(64 + i)].width = w
+
+    # Two-decimal number format on the amount columns
+    for col in (3, 5):
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=col, max_col=col):
+            for cell in row:
+                cell.number_format = "0.00"
+
+    # Freeze the header so long exports stay scannable
+    ws.freeze_panes = "A2"
+
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+@app.route("/api/transactions/export")
+def api_export_transactions() -> Response:
+    """Export the currently loaded transactions as CSV or XLSX.
+
+    Query params:
+        format: csv (default) or xlsx
+    """
+    with _state_lock:
+        txs = _state.get("transactions")
+    if not txs:
+        return jsonify({"error": "没有可导出的数据，请先获取数据"}), 400
+
+    fmt = (request.args.get("format", "csv") or "csv").lower()
+    filename = _build_filename(txs, fmt)
+
+    try:
+        if fmt == "csv":
+            # UTF-8 BOM so Excel on Windows opens Chinese as text, not mojibake.
+            body = "﻿" + _export_rows_csv(txs)
+            return Response(
+                body.encode("utf-8"),
+                mimetype="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"'
+                },
+            )
+        elif fmt == "xlsx":
+            data = _export_rows_xlsx(txs)
+            return send_file(
+                io.BytesIO(data),
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                as_attachment=True,
+                download_name=filename,
+            )
+        else:
+            return jsonify({"error": f"不支持的导出格式: {fmt}"}), 400
+    except Exception as e:
+        logger.exception("Export failed")
+        return jsonify({"error": f"导出失败: {e}"}), 500
 
 
 # --------------------------------------------------------------------------- #

@@ -489,6 +489,14 @@ textarea:focus, input:focus {
     gap: 10px;
     margin-bottom: 16px;
     flex-wrap: wrap;
+    align-items: center;
+}
+.actions-divider {
+    display: inline-block;
+    width: 1px;
+    height: 22px;
+    background: var(--border);
+    margin: 0 2px;
 }
 .report-container {
     border: 1px solid var(--border);
